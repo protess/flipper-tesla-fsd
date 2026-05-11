@@ -115,12 +115,22 @@ panel behind the rear armrest. Two versions exist:
 **4 separate CAN bus pairs** on one connector. Pin 13/14 (bus 6) is
 what aftermarket products (Feifan Commander, enhauto, etc.) connect to.
 
-#### X179 26-pin — two variants
+#### 26-pin rear connector — two variants
 
-The 26-pin connector ships in two electrical configurations depending
-on production date. **They are not interchangeable.**
+The 26-pin rear connector ships in two electrical configurations
+depending on production date. **They are not interchangeable.**
 
-##### Pre-April 2024 (Highland Model 3 early build, 2024 Juniper Model Y early build)
+> [!NOTE]
+> The connector name is unsettled. The 20-pin variant is documented as
+> X179 in community sources, but Tesla service documentation may use a
+> different identifier for the 26-pin. If you find the official name
+> in a Tesla service doc, please open an issue with the reference and
+> we will update.
+
+##### Pre-April 2024 builds (CAN)
+
+Confirmed on community testing of 2021–2023 Model 3/Y and early 2024
+Highland / Juniper builds.
 
 | Pin | Signal | Notes |
 |-----|--------|-------|
@@ -131,33 +141,45 @@ on production date. **They are not interchangeable.**
 | 19 | CAN-L | Vehicle CAN (yellow wire) |
 | **26** | **GND** | Ground (black wire, 2mm²) |
 
-##### Post-April 2024 (Juniper Model Y / Highland Model 3 later builds — DoIP)
+##### Post-April 2024 builds (mixed DoIP / CAN)
 
 > [!CAUTION]
 > Tesla migrated several pin pairs from CAN to **DoIP (100 Mbps
-> Ethernet)** starting around April 2024. **Do not assume your 26-pin
-> connector follows the pre-April 2024 layout.** Connecting a CAN
-> transceiver to a DoIP pin pair will not damage the car (the
-> transceiver simply sees no valid CAN traffic), but the transceiver
-> may fail differential-signal checks with the wrong common-mode
-> voltage.
+> Ethernet)** in April 2024 — coinciding with the EU's OBD compliance
+> deadline. This migration appears to apply at least to EU-region
+> builds and likely beyond, but the exact scope is **not yet pinned
+> down** (see SOP variants below). **Do not assume your 26-pin
+> follows the pre-April 2024 layout — oscilloscope-verify before
+> powering up a transceiver.**
 
-Confirmed by @0n3-70uch using oscilloscope measurements on a Berlin-built
-Model Y / 2026.14.3 (issue [#52](https://github.com/hypery11/flipper-tesla-fsd/issues/52)):
+The classification axis is April 2024 production date and region, **not**
+Juniper-or-not. A pre-Juniper EU-build Model Y from the same window
+shows the same DoIP migration as Juniper builds.
 
-| Pin | Signal on post-April 2024 build |
-|-----|------------|
+Confirmed by @0n3-70uch via oscilloscope measurements on a Berlin-built
+EU Model Y (pre-Juniper, post-April-2024 production) running 2026.14.3
+(issue [#52](https://github.com/hypery11/flipper-tesla-fsd/issues/52)):
+
+| Pin | Signal on this car |
+|-----|--------------------|
 | 9 / 10 | DoIP (Ethernet) — **not** CAN |
 | 12 / 13 | DoIP (Ethernet) — **not** CAN |
 | **18 / 19** | **Vehicle CAN — only working CAN pair** |
 | 15 | +12V (unchanged) |
 | 26 | GND (unchanged) |
 
-If you are on a 2024+ Juniper or late Highland build, use **pin 18 / 19**
-(Vehicle CAN) and oscilloscope-verify before powering up the
-transceiver. A 120Ω terminator may be required at the tap point if you
-see RX errors — the Vehicle CAN bus has a Gateway-end terminator and
-your tap may sit between the two terminators.
+This is a **single empirical data point** and may not generalise to
+every post-April-2024 build. @TianzeWang notes (issue [#52](https://github.com/hypery11/flipper-tesla-fsd/issues/52))
+that Tesla's [Model Y Electrical Reference](https://service.tesla.com/docs/ModelY/ElectricalReference/)
+distinguishes between **Berlin Juniper (SOP8)** and **Shanghai Juniper
+(SOP9)** — pin maps may differ further by SOP variant. Until a
+broader sweep is published, the safe recommendation on any 2024+
+build is:
+
+1. **Oscilloscope-verify** every pair before connecting a transceiver.
+2. If the 120 Ω differential-signal check fails on pin 13/14, the
+   pair is likely DoIP — try pin 18/19 instead.
+3. The +12V (pin 15) and GND (pin 26) appear stable across SOPs.
 
 ### Why X179 Pin 13/14 is the best single connection point (pre-April 2024 only)
 
