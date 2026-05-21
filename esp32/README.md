@@ -137,7 +137,7 @@ The T-Display LCD already owns the board's default VSPI pins, so the `ttgo-tdisp
 | MISO / SO | 32 | **Needs 5 V → 3.3 V divider** if MCP2515 is powered from 5 V (most cheap modules are) |
 | MOSI / SI | 25 | |
 | INT | (unused) | |
-| VCC | 5 V | 5V for TJA1050-based modules; 3V3 only if your module supports it | |
+| VCC | 5 V | 5V for TJA1050-based modules; 3V3 only if your module supports it |
 | GND | GND | |
 
 > [!IMPORTANT]
@@ -145,7 +145,7 @@ The T-Display LCD already owns the board's default VSPI pins, so the `ttgo-tdisp
 > the TJA1050 transceiver from a 5 V rail and drives MISO at 5 V logic
 > levels. The ESP32 GPIOs are 3.3 V tolerant only — driving them at 5 V
 > shortens the chip's life and can latch up the SoC. Add a simple
-> resistor divider on the MISO line (see
+> resistor divider on the MISO line — see
 > [HARDWARE.md – MCP2515 MISO 5V to 3.3V voltage divider](../HARDWARE.md#mcp2515-miso-5v-to-33v-voltage-divider).
 
 The built-in ST7789 display is enabled by default and can be toggled from the Web Dashboard or by pushing the GPIO35 button.
