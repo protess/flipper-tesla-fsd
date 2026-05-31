@@ -18,6 +18,7 @@
 #include <stdio.h>
 #include <string.h>
 
+#include "fsd_can_ops.h"
 #include "fsd_checksum.h"
 #include "fsd_handler.h"
 
@@ -350,6 +351,24 @@ static void test_nag_killer(void) {
     CHECK(fsd_handle_nag_killer(&s, &in, &out2) == false, "nag skips when disabled");
 }
 
+// ── shared stateless ops (china_mode path the Flipper wrapper can't reach) ────
+static void test_can_ops(void) {
+    uint8_t data[8] = {0};
+    data[4] = 0x00; // UI flag clear
+    CHECK(tesla_is_fsd_selected(data, 8, false, false) == false, "ops: not selected");
+    CHECK(tesla_is_fsd_selected(data, 8, true, false) == true, "ops: force_fsd bypass");
+    CHECK(tesla_is_fsd_selected(data, 8, false, true) == true, "ops: china_mode bypass");
+    CHECK(tesla_is_fsd_selected(data, 4, false, false) == false, "ops: dlc<5 guard");
+    data[4] = 0x40;
+    CHECK(tesla_is_fsd_selected(data, 8, false, false) == true, "ops: UI bit6 selected");
+    // set_bit / read_mux raw-pointer forms
+    uint8_t d2[8] = {0};
+    tesla_set_bit(d2, 47, true); // byte5 bit7
+    CHECK(d2[5] == 0x80, "ops: set_bit 47 -> 0x80 got 0x%02X", d2[5]);
+    d2[0] = 0x0E;
+    CHECK(tesla_read_mux(d2) == 6, "ops: read_mux 0x0E&0x07 = 6 got %u", tesla_read_mux(d2));
+}
+
 // ── shared additive checksum kernel ───────────────────────────────────────────
 static void test_additive_checksum(void) {
     uint8_t d[7] = {0x11, 0x22, 0x33, 0x44, 0x55, 0x66, 0x77};
@@ -392,6 +411,7 @@ int main(void) {
     test_track_mode_crc();
     test_sccm_crc();
     test_nag_killer();
+    test_can_ops();
     test_additive_checksum();
     test_state_init();
 

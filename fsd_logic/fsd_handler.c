@@ -1,5 +1,6 @@
 #include "fsd_handler.h"
 #include "fsd_checksum.h"
+#include "fsd_can_ops.h"
 #include <string.h>
 
 void fsd_state_init(FSDState* state, TeslaHWVersion hw) {
@@ -76,25 +77,16 @@ void fsd_build_precondition_frame(CANFRAME* frame) {
 }
 
 void fsd_set_bit(CANFRAME* frame, int bit, bool value) {
-    if(bit < 0 || bit >= 64) return;
-    int byte_idx = bit / 8;
-    int bit_idx = bit % 8;
-    uint8_t mask = (uint8_t)(1U << bit_idx);
-    if(value) {
-        frame->buffer[byte_idx] |= mask;
-    } else {
-        frame->buffer[byte_idx] &= (uint8_t)(~mask);
-    }
+    tesla_set_bit(frame->buffer, bit, value);
 }
 
 uint8_t fsd_read_mux_id(const CANFRAME* frame) {
-    return frame->buffer[0] & 0x07;
+    return tesla_read_mux(frame->buffer);
 }
 
 bool fsd_is_selected_in_ui(const CANFRAME* frame, bool force_fsd) {
-    if(force_fsd) return true;
-    if(frame->data_lenght < 5) return false;
-    return (frame->buffer[4] >> 6) & 0x01;
+    // Flipper has no china_mode field; pass false (behavior unchanged).
+    return tesla_is_fsd_selected(frame->buffer, frame->data_lenght, force_fsd, false);
 }
 
 TeslaHWVersion fsd_detect_hw_version(const CANFRAME* frame) {

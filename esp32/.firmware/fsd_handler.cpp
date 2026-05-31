@@ -12,35 +12,24 @@
 #include "fsd_handler.h"
 #include "can_signals.h"
 #include "../../fsd_logic/fsd_checksum.h"  // shared Tesla additive checksum (single impl, both platforms)
+#include "../../fsd_logic/fsd_can_ops.h"   // shared stateless frame primitives (set_bit / mux / fsd-selected)
 #include <string.h>
 
 // ── Internal helpers ──────────────────────────────────────────────────────────
 
+// DAS_autopilotControl byte 4 bits [7:6] = UI "FSD selected" flag (bit 38 in the 64-bit data
+// field). Note: bit 46 is the *output* FSD-activation bit written to the modified frame —
+// a different field at byte 5 bit 6. Logic shared with the Flipper via fsd_can_ops.h.
 static void set_bit(CanFrame *frame, int bit, bool value) {
-    if (bit < 0 || bit >= CAN_FRAME_MAX_BITS) return;
-    int byte_idx = bit / 8;
-    int bit_idx  = bit % 8;
-    uint8_t mask = (uint8_t)(1U << bit_idx);
-    if (value)
-        frame->data[byte_idx] |= mask;
-    else
-        frame->data[byte_idx] &= (uint8_t)(~mask);
+    tesla_set_bit(frame->data, bit, value);
 }
 
 static uint8_t read_mux_id(const CanFrame *frame) {
-    // MUX ID is the lower 3 bits of byte 0
-    return frame->data[CAN_MUX_BYTE] & CAN_MUX_MASK;
+    return tesla_read_mux(frame->data);
 }
 
 static bool is_fsd_selected(const CanFrame *frame, bool force_fsd, bool china_mode) {
-    if (force_fsd) return true;
-    if (china_mode) return true;
-    if (frame->dlc < 5) return false;
-    // DAS_autopilotControl byte 4 bits [7:6] = UI "FSD selected" flag (bit 38 in the 64-bit data
-    // field).  Note: bit 46 is the *output* FSD-activation bit written to the modified frame —
-    // a different field at byte 5 bit 6.
-    return (frame->data[SIG_AP_UI_FSD_SELECTED_BYTE] >> SIG_AP_UI_FSD_SELECTED_SHIFT) &
-           SIG_AP_UI_FSD_SELECTED_MASK;
+    return tesla_is_fsd_selected(frame->data, frame->dlc, force_fsd, china_mode);
 }
 
 // ── State init ────────────────────────────────────────────────────────────────
