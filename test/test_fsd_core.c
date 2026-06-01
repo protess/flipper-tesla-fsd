@@ -458,6 +458,19 @@ static void test_legacy(void) {
     f.buffer[2] = 0x08; // bit19 preset
     CHECK(fsd_handle_legacy_autopilot(&s, &f), "legacy AP mux1 modified");
     CHECK((f.buffer[2] & 0x08) == 0, "legacy AP mux1 bit19 cleared");
+
+    // AP-first timing gate (safety, ev-open-can-tools#66): with ap_first on, no
+    // 0x3EE inject until AP is engaged (das_ap_state >= 2).
+    memset(&s, 0, sizeof(s));
+    s.force_fsd = true;
+    s.ap_first = true;
+    s.das_ap_state = 0; // AP not yet active
+    zero(&f);
+    f.data_lenght = 8;
+    f.buffer[0] = 0; // mux0
+    CHECK(fsd_handle_legacy_autopilot(&s, &f) == false, "legacy AP-first blocks before AP active");
+    s.das_ap_state = 2; // AP active
+    CHECK(fsd_handle_legacy_autopilot(&s, &f), "legacy AP-first allows once AP active");
 }
 
 // ── 0x145 ESP_status brake ────────────────────────────────────────────────────
