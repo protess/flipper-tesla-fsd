@@ -740,6 +740,140 @@ static void test_misc_parsers(void) {
     CHECK(s.das_acc_state == 4, "das_control acc_state got %u", s.das_acc_state);
 }
 
+// ── remaining read-only parsers ───────────────────────────────────────────────
+static void test_readonly_parsers(void) {
+    FSDState s;
+    CANFRAME f;
+
+    // VCRIGHT_status (0x343): rear defrost = byte1 bits[2:0]
+    memset(&s, 0, sizeof(s));
+    zero(&f);
+    f.data_lenght = 2;
+    f.buffer[1] = 0x02;
+    fsd_handle_vcright_status(&s, &f);
+    CHECK(s.rear_defrost_state == 2, "vcright defrost got %u", s.rear_defrost_state);
+
+    // DI_systemStatus (0x118): track mode = byte6[1:0], traction = byte5[2:0]
+    memset(&s, 0, sizeof(s));
+    zero(&f);
+    f.data_lenght = 7;
+    f.buffer[6] = 0x02;
+    f.buffer[5] = 0x05;
+    fsd_handle_di_system_status(&s, &f);
+    CHECK(s.track_mode_state == 2, "di_sys track got %u", s.track_mode_state);
+    CHECK(s.traction_ctrl_mode == 5, "di_sys traction got %u", s.traction_ctrl_mode);
+
+    // EPAS3S_currentTuneMode (0x370): mode = byte0[7:5]; torsion = ((byte2&0x0F)<<8|byte3)*0.01-20.5
+    memset(&s, 0, sizeof(s));
+    zero(&f);
+    f.data_lenght = 4;
+    f.buffer[0] = 0xA0; // bits[7:5] = 5
+    f.buffer[2] = 0x01;
+    f.buffer[3] = 0x90; // raw = 0x190 = 400 -> 4.0 - 20.5 = -16.5
+    fsd_handle_epas_steering_mode(&s, &f);
+    CHECK(s.steering_tune_mode == 5, "epas tune got %u", s.steering_tune_mode);
+    CHECK(fabs(s.torsion_bar_torque_nm + 16.5f) < 0.05f, "epas torsion got %.2f",
+          (double)s.torsion_bar_torque_nm);
+
+    // DAS_status2 (0x389): acc_report = byte3[6:2], activation_fail = byte1[7:6]
+    memset(&s, 0, sizeof(s));
+    zero(&f);
+    f.data_lenght = 5;
+    f.buffer[3] = 0x14; // (0x14>>2)&0x1F = 5
+    f.buffer[1] = 0xC0; // (0xC0>>6)&3 = 3
+    fsd_handle_das_status2(&s, &f);
+    CHECK(s.das_acc_report == 5, "das2 acc_report got %u", s.das_acc_report);
+    CHECK(s.das_activation_fail == 3, "das2 activation_fail got %u", s.das_activation_fail);
+
+    // DAS_settings (0x293): autosteer = byte4[6]
+    memset(&s, 0, sizeof(s));
+    zero(&f);
+    f.data_lenght = 5;
+    f.buffer[4] = 0x40;
+    fsd_handle_das_settings(&s, &f);
+    CHECK(s.das_autosteer_on, "das_settings autosteer on");
+
+    // SCCM_steeringAngle (0x129): int16 LE byte0-1 * 0.1
+    memset(&s, 0, sizeof(s));
+    zero(&f);
+    f.data_lenght = 4;
+    f.buffer[0] = 0x64;
+    f.buffer[1] = 0x00; // raw = 100 -> 10.0 deg
+    fsd_handle_steering_angle(&s, &f);
+    CHECK(fabs(s.steering_angle_deg - 10.0f) < 0.05f, "steer angle got %.2f",
+          (double)s.steering_angle_deg);
+
+    // DAS_steeringControl (0x488): type = byte2[7:6]; angle = ((byte0&0x7F)<<8|byte1)*0.1-1638.35
+    memset(&s, 0, sizeof(s));
+    zero(&f);
+    f.data_lenght = 3;
+    f.buffer[2] = 0xC0; // type = 3
+    f.buffer[0] = 0x40;
+    f.buffer[1] = 0x00; // raw = 0x4000 = 16384 -> 1638.4 - 1638.35 = 0.05
+    fsd_handle_das_steering(&s, &f);
+    CHECK(s.das_steer_type == 3, "das_steer type got %u", s.das_steer_type);
+    CHECK(fabs(s.das_steer_angle_req - 0.05f) < 0.1f, "das_steer angle got %.2f",
+          (double)s.das_steer_angle_req);
+
+    // UI_ratedConsumption (0x33A): raw = byte1<<8|byte0, * 0.1
+    memset(&s, 0, sizeof(s));
+    zero(&f);
+    f.data_lenght = 4;
+    f.buffer[0] = 0x10;
+    f.buffer[1] = 0x00; // raw = 16 -> 1.6
+    fsd_handle_energy_consumption(&s, &f);
+    CHECK(fabs(s.energy_wh_per_km - 1.6f) < 0.05f, "energy got %.2f", (double)s.energy_wh_per_km);
+    CHECK(s.energy_seen, "energy seen");
+}
+
+// ── extras write handlers (Service-gated) + frame builders ────────────────────
+static void test_extras_and_builders(void) {
+    FSDState s;
+    CANFRAME f;
+
+    // Hazard inject: byte0[7:4] = 1, Service-gated.
+    memset(&s, 0, sizeof(s));
+    s.op_mode = OpMode_Service;
+    s.extra_hazard_lights = true;
+    zero(&f);
+    f.data_lenght = 8;
+    f.buffer[0] = 0x0F;
+    CHECK(fsd_handle_hazard_inject(&s, &f), "hazard modifies");
+    CHECK(f.buffer[0] == 0x1F, "hazard byte0 got 0x%02X exp 0x1F", f.buffer[0]);
+    s.op_mode = OpMode_Active; // gate
+    CHECK(fsd_handle_hazard_inject(&s, &f) == false, "hazard gated outside Service");
+
+    // Wiper off: byte0[7:4] = 0, Service-gated.
+    memset(&s, 0, sizeof(s));
+    s.op_mode = OpMode_Service;
+    s.extra_wiper_off = true;
+    zero(&f);
+    f.data_lenght = 8;
+    f.buffer[0] = 0xF5;
+    CHECK(fsd_handle_wiper_off(&s, &f), "wiper modifies");
+    CHECK(f.buffer[0] == 0x05, "wiper byte0 got 0x%02X exp 0x05", f.buffer[0]);
+
+    // Park frame builder (0x229).
+    zero(&f);
+    fsd_build_park_frame(&f);
+    CHECK(f.canId == CAN_ID_SCCM_RSTALK, "park id 0x229");
+    CHECK(f.data_lenght == 3, "park dlc 3");
+    CHECK(f.buffer[2] == 0x01, "park button pressed byte2");
+
+    // Steering tune frame builder (0x101).
+    zero(&f);
+    fsd_build_steering_tune_frame(&f, 3);
+    CHECK(f.canId == CAN_ID_GTW_EPAS_CTRL, "tune id 0x101");
+    CHECK(f.buffer[0] == (3 << 2), "tune byte0 got 0x%02X exp 0x0C", f.buffer[0]);
+
+    // Precondition frame builder (0x082).
+    zero(&f);
+    fsd_build_precondition_frame(&f);
+    CHECK(f.canId == CAN_ID_TRIP_PLANNING, "precond id 0x082");
+    CHECK(f.data_lenght == 8, "precond dlc 8");
+    CHECK(f.buffer[0] == 0x05, "precond byte0 got 0x%02X exp 0x05", f.buffer[0]);
+}
+
 // ── state init ────────────────────────────────────────────────────────────────
 static void test_state_init(void) {
     FSDState s;
@@ -774,6 +908,8 @@ int main(void) {
     test_gtw_shield();
     test_scroll_press();
     test_misc_parsers();
+    test_readonly_parsers();
+    test_extras_and_builders();
     test_state_init();
 
     printf("\n%d passed, %d failed\n", g_pass, g_fail);
