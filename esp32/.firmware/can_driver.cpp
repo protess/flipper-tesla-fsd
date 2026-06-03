@@ -303,6 +303,35 @@ public:
                           label_, (int)err);
         }
     }
+
+    void setAcceptanceFilter(bool single, uint32_t id) override {
+        if (!installed_) return;
+        // Both receive buffers: set the mask so all 11 id bits must match
+        // (0x7FF) for single-id capture, or 0x000 (don't-care = accept all) to
+        // restore. Point every filter at the wanted id. setFilter* enter CONFIG
+        // mode internally, so the run mode is re-applied afterwards.
+        uint32_t mask = single ? 0x7FFu : 0x000u;
+        uint32_t fid  = single ? (id & 0x7FFu) : 0x000u;
+        bool ok = true;
+        ok &= (mcp_.setFilterMask(MCP2515::MASK0, false, mask) == MCP2515::ERROR_OK);
+        ok &= (mcp_.setFilterMask(MCP2515::MASK1, false, mask) == MCP2515::ERROR_OK);
+        const MCP2515::RXF rxf[6] = {MCP2515::RXF0, MCP2515::RXF1, MCP2515::RXF2,
+                                     MCP2515::RXF3, MCP2515::RXF4, MCP2515::RXF5};
+        for (uint8_t i = 0; i < 6; i++) {
+            ok &= (mcp_.setFilter(rxf[i], false, fid) == MCP2515::ERROR_OK);
+        }
+        // setFilter* leave the chip in CONFIG mode — restore the prior run mode.
+        MCP2515::ERROR merr = listen_only_ ? mcp_.setListenOnlyMode() : mcp_.setNormalMode();
+        ok &= (merr == MCP2515::ERROR_OK);
+        if (!ok) {
+            Serial.printf("[CAN] %s MCP2515 filter switch FAILED\n", label_);
+        } else if (single) {
+            Serial.printf("[CAN] %s MCP2515 hardware filter -> 0x%03lX only (full-rate capture)\n",
+                          label_, (unsigned long)fid);
+        } else {
+            Serial.printf("[CAN] %s MCP2515 hardware filter -> accept all\n", label_);
+        }
+    }
 };
 #endif
 
