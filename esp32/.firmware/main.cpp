@@ -1555,21 +1555,37 @@ void loop() {
     // ── Full-rate single-ID capture: drive the hardware acceptance filter ─────
     // When a /stream is opened with exactly one ?ids= value, restrict the CAN
     // controller to that id so its RX queue never overflows and every frame is
-    // captured at true full rate. Restore accept-all when the stream ends.
-    // Only ever single in Listen-Only (the stream is disabled in Active mode).
+    // captured at true full rate. If ?bus=can0/can1 is present, scope the
+    // hardware filter to that controller only. Restore accept-all when the
+    // stream ends. Only ever single in Listen-Only (stream is disabled in Active).
     {
-        static bool     s_hw_filter_single = false;
-        static uint32_t s_hw_filter_id     = 0xFFFFFFFFu;
+        static bool     s_hw_filter_single[CAN_ACTIVE_BUS_COUNT] = {};
+        static uint32_t s_hw_filter_id[CAN_ACTIVE_BUS_COUNT] = {};
+        static bool     s_hw_filter_initialized = false;
+        if (!s_hw_filter_initialized) {
+            for (uint8_t i = 0; i < CAN_ACTIVE_BUS_COUNT; i++) {
+                s_hw_filter_id[i] = 0xFFFFFFFFu;
+            }
+            s_hw_filter_initialized = true;
+        }
+
         uint32_t want_id = 0;
         bool want_single = http_can_stream_single_filter(&want_id);
-        if (want_single != s_hw_filter_single ||
-            (want_single && want_id != s_hw_filter_id)) {
-            for (uint8_t i = 0; i < CAN_ACTIVE_BUS_COUNT; i++) {
-                if (g_can_ok[i] && g_can[i])
-                    g_can[i]->setAcceptanceFilter(want_single, want_id);
+        CanBusId want_bus = CAN_BUS_PRIMARY;
+        bool want_bus_filter = http_can_stream_bus_filter(&want_bus);
+
+        for (uint8_t i = 0; i < CAN_ACTIVE_BUS_COUNT; i++) {
+            CanBusId bus = bus_id_from_index(i);
+            bool bus_want_single = want_single && (!want_bus_filter || bus == want_bus);
+            uint32_t bus_want_id = bus_want_single ? want_id : 0u;
+            if (bus_want_single != s_hw_filter_single[i] ||
+                (bus_want_single && bus_want_id != s_hw_filter_id[i])) {
+                if (g_can_ok[i] && g_can[i]) {
+                    g_can[i]->setAcceptanceFilter(bus_want_single, bus_want_id);
+                    s_hw_filter_single[i] = bus_want_single;
+                    s_hw_filter_id[i] = bus_want_id;
+                }
             }
-            s_hw_filter_single = want_single;
-            s_hw_filter_id     = want_id;
         }
     }
 
